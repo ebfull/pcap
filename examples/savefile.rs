@@ -3,7 +3,7 @@ use pcap::*;
 fn main() {
     {
         // open capture from default device
-        let device = Device::lookup().unwrap();
+        let device = Device::lookup().unwrap().unwrap();
         println!("Using device {}", device.name);
 
         // Setup Capture

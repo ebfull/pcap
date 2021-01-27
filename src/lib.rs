@@ -197,22 +197,28 @@ impl Device {
         Capture::from_device(self)?.open()
     }
 
-    /// Returns the default Device suitable for captures according to pcap_lookupdev,
-    /// or an error from pcap.
-    #[cfg(not(target_os = "windows"))]
-    pub fn lookup() -> Result<Device, Error> {
+    /// Returns the first Device suitable for captures according to pcap_findalldevs,
+    /// or an error from pcap. Note that, there may be no suitable Devices.
+    pub fn lookup() -> Result<Option<Device>, Error> {
         with_errbuf(|err| unsafe {
-            cstr_to_string(raw::pcap_lookupdev(err))?
-                .map(|name| Device::new(name, None))
-                .ok_or_else(|| Error::new(err))
-        })
-    }
-    #[cfg(target_os = "windows")]
-    pub fn lookup() -> Result<Device, Error> {
-        with_errbuf(|err| unsafe {
-            wstr_to_string(raw::pcap_lookupdev(err))?
-                .map(|name| Device::new(name, None))
-                .ok_or_else(|| Error::new(err))
+            let mut dev_buf: *mut raw::pcap_if_t = ptr::null_mut();
+            if raw::pcap_findalldevs(&mut dev_buf, err) != 0 {
+                return Err(Error::new(err));
+            }
+            let result = (|| {
+                let cur = dev_buf;
+                if !cur.is_null() {
+                    let dev = &*cur;
+                    Ok(Some(Device::new(
+                        cstr_to_string(dev.name)?.ok_or(InvalidString)?,
+                        cstr_to_string(dev.description)?,
+                    )))
+                } else {
+                    Ok(None)
+                }
+            })();
+            raw::pcap_freealldevs(dev_buf);
+            result
         })
     }
 
@@ -754,7 +760,7 @@ impl Capture<Inactive> {
     /// use pcap::*;
     ///
     /// // Usage 1: Capture from a single owned device
-    /// let dev: Device = pcap::Device::lookup().unwrap();
+    /// let dev: Device = pcap::Device::lookup().unwrap().unwrap();
     /// let cap1 = Capture::from_device(dev);
     ///
     /// // Usage 2: Capture from an element of device list.
@@ -1168,21 +1174,6 @@ unsafe fn cstr_to_string(ptr: *const libc::c_char) -> Result<Option<String>, Err
         None
     } else {
         Some(CStr::from_ptr(ptr as _).to_str()?.to_owned())
-    };
-    Ok(string)
-}
-
-#[cfg(target_os = "windows")]
-#[inline]
-fn wstr_to_string(ptr: *const libc::c_char) -> Result<Option<String>, Error> {
-    let string = if ptr.is_null() {
-        None
-    } else {
-        Some(
-            unsafe { WideCString::from_ptr_str(ptr as _) }
-                .to_string()
-                .unwrap(),
-        )
     };
     Ok(string)
 }

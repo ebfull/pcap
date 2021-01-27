@@ -1,6 +1,6 @@
 fn main() {
     // get the default Device
-    let device = pcap::Device::lookup().unwrap();
+    let device = pcap::Device::lookup().unwrap().unwrap();
     println!("Using device {}", device.name);
 
     // Setup Capture
